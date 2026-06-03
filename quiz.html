@@ -1,0 +1,148 @@
+{% extends "base.html" %}
+{% block title %}Quiz: {{ deck.name }}{% endblock %}
+{% block extra_head %}
+<style>
+.quiz-wrap{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:calc(100vh - 70px);padding:2rem}
+.progress-bar{width:100%;max-width:600px;height:6px;background:var(--surface);border-radius:3px;overflow:hidden;margin-bottom:2rem}
+.progress-fill{height:100%;background:linear-gradient(90deg,#6C63FF,#FF6584);border-radius:3px;transition:width .4s}
+.card-counter{font-size:.85rem;color:var(--muted);margin-bottom:1rem;width:100%;max-width:600px;display:flex;justify-content:space-between}
+.flashcard{width:100%;max-width:600px;height:320px;perspective:1000px;cursor:pointer;margin-bottom:2rem}
+.flashcard-inner{position:relative;width:100%;height:100%;transition:transform .6s cubic-bezier(.4,0,.2,1);transform-style:preserve-3d}
+.flashcard.flipped .flashcard-inner{transform:rotateY(180deg)}
+.card-face{position:absolute;inset:0;background:var(--card-bg);border:1px solid var(--border);border-radius:24px;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:2rem;backface-visibility:hidden;text-align:center}
+.card-face.back{transform:rotateY(180deg);background:linear-gradient(135deg,rgba(108,99,255,.1),rgba(255,101,132,.1));border-color:var(--primary)}
+.card-label{font-size:.75rem;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin-bottom:1rem}
+.card-text{font-size:1.4rem;font-weight:600;line-height:1.4}
+.hint{font-size:.85rem;color:var(--muted);margin-top:1.5rem}
+.quiz-actions{display:flex;gap:1rem;flex-wrap:wrap;justify-content:center;width:100%;max-width:600px}
+.result-screen{display:none;text-align:center;padding:2rem;max-width:500px;margin:0 auto}
+.result-screen.active{display:block}
+.score-ring{width:140px;height:140px;margin:0 auto 2rem;position:relative}
+.score-ring svg{transform:rotate(-90deg)}
+.score-ring .score-text{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center}
+.score-ring .score-num{font-size:2rem;font-weight:800}
+.score-ring .score-label{font-size:.75rem;color:var(--muted)}
+.review-list{text-align:left;margin:1.5rem 0;max-height:250px;overflow-y:auto}
+.review-item{background:var(--card-bg);border:1px solid var(--border);border-radius:12px;padding:1rem;margin-bottom:.75rem;border-left:4px solid}
+.review-item.correct{border-left-color:#43D9AD}
+.review-item.wrong{border-left-color:#ef4444}
+.review-item .q{font-size:.85rem;font-weight:600;margin-bottom:.3rem}
+.review-item .a{font-size:.8rem;color:var(--muted)}
+</style>
+{% endblock %}
+{% block content %}
+<div class="quiz-wrap" id="quizWrap">
+  <div class="progress-bar"><div class="progress-fill" id="progressFill" style="width:0%"></div></div>
+  <div class="card-counter">
+    <span id="cardNum">Card 1 of {{ cards|length }}</span>
+    <span id="scoreChip">✓ 0 | ✗ 0</span>
+  </div>
+  <div class="flashcard" id="flashcard" onclick="flipCard()">
+    <div class="flashcard-inner">
+      <div class="card-face front">
+        <div class="card-label">Question</div>
+        <div class="card-text" id="questionText"></div>
+        <div class="hint">Click to reveal answer</div>
+      </div>
+      <div class="card-face back">
+        <div class="card-label">Answer</div>
+        <div class="card-text" id="answerText"></div>
+      </div>
+    </div>
+  </div>
+  <div class="quiz-actions" id="beforeFlip">
+    <button class="btn btn-ghost" onclick="skipCard()">Skip →</button>
+    <button class="btn btn-primary" onclick="flipCard()">Show Answer</button>
+  </div>
+  <div class="quiz-actions" id="afterFlip" style="display:none">
+    <button class="btn btn-danger" onclick="markResult(false)" style="flex:1;justify-content:center;max-width:200px">✗ Incorrect</button>
+    <button class="btn btn-success" onclick="markResult(true)" style="flex:1;justify-content:center;max-width:200px">✓ Correct</button>
+  </div>
+</div>
+
+<div class="result-screen" id="resultScreen">
+  <div class="container">
+    <h2 style="margin-bottom:.5rem">Quiz Complete! 🎉</h2>
+    <p style="color:var(--muted);margin-bottom:2rem">Here's how you did on <strong>{{ deck.name }}</strong></p>
+    <div class="score-ring">
+      <svg width="140" height="140" viewBox="0 0 140 140">
+        <circle cx="70" cy="70" r="60" fill="none" stroke="var(--surface)" stroke-width="12"/>
+        <circle cx="70" cy="70" r="60" fill="none" stroke="#43D9AD" stroke-width="12"
+          stroke-dasharray="377" stroke-dashoffset="377" id="scoreArc" stroke-linecap="round"/>
+      </svg>
+      <div class="score-text"><div class="score-num" id="finalPct">0%</div><div class="score-label">Accuracy</div></div>
+    </div>
+    <div id="reviewList" class="review-list"></div>
+    <div style="display:flex;gap:1rem;justify-content:center;flex-wrap:wrap">
+      <button class="btn btn-ghost" onclick="location.href='/'">← All Decks</button>
+      <button class="btn btn-primary" onclick="restartQuiz()">Retry Quiz</button>
+    </div>
+  </div>
+</div>
+
+{% block extra_js %}
+<script>
+const cards = {{ cards|tojson }};
+let queue = [...cards].sort(()=>Math.random()-.5);
+let current = 0, correct = 0, wrong = 0, results = [];
+
+function load(){
+  if(current >= queue.length){ showResult(); return; }
+  const c = queue[current];
+  document.getElementById('questionText').textContent = c.question;
+  document.getElementById('answerText').textContent = c.answer;
+  document.getElementById('flashcard').classList.remove('flipped');
+  document.getElementById('beforeFlip').style.display='flex';
+  document.getElementById('afterFlip').style.display='none';
+  const pct = (current/queue.length*100).toFixed(0);
+  document.getElementById('progressFill').style.width=pct+'%';
+  document.getElementById('cardNum').textContent=`Card ${current+1} of ${queue.length}`;
+  document.getElementById('scoreChip').textContent=`✓ ${correct} | ✗ ${wrong}`;
+}
+function flipCard(){
+  document.getElementById('flashcard').classList.add('flipped');
+  document.getElementById('beforeFlip').style.display='none';
+  document.getElementById('afterFlip').style.display='flex';
+}
+function markResult(isCorrect){
+  const c=queue[current];
+  if(isCorrect) correct++; else wrong++;
+  results.push({card:c,correct:isCorrect});
+  fetch(`/api/cards/${c.id}/result`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({correct:isCorrect})});
+  current++;
+  load();
+}
+function skipCard(){
+  queue.push(queue[current]);
+  current++;
+  load();
+}
+function showResult(){
+  document.getElementById('quizWrap').style.display='none';
+  const rs=document.getElementById('resultScreen');
+  rs.classList.add('active');
+  const total=correct+wrong;
+  const pct=total?Math.round(correct/total*100):0;
+  document.getElementById('finalPct').textContent=pct+'%';
+  const arc=document.getElementById('scoreArc');
+  const circumference=377;
+  setTimeout(()=>{arc.style.strokeDashoffset=circumference*(1-pct/100)},100);
+  arc.style.stroke=pct>=70?'#43D9AD':pct>=40?'#F59E0B':'#ef4444';
+  const rl=document.getElementById('reviewList');
+  rl.innerHTML=results.map(r=>`
+    <div class="review-item ${r.correct?'correct':'wrong'}">
+      <div class="q">Q: ${r.card.question}</div>
+      <div class="a">A: ${r.card.answer}</div>
+    </div>`).join('');
+}
+function restartQuiz(){
+  current=0;correct=0;wrong=0;results=[];
+  queue=[...cards].sort(()=>Math.random()-.5);
+  document.getElementById('quizWrap').style.display='flex';
+  document.getElementById('resultScreen').classList.remove('active');
+  load();
+}
+load();
+</script>
+{% endblock %}
+{% endblock %}
