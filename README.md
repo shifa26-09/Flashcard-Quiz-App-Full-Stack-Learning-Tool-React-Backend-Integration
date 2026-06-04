@@ -16,4 +16,4 @@ A sleek, full-stack flashcard study app with deck management, progress tracking,
 pip install flask
 python app.py
 ```
-Open: http://localhost:5001
+Open: https://flash-cards-game5.netlify.app
