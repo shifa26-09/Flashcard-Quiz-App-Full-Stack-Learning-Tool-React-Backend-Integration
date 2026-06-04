@@ -1,0 +1,123 @@
+{% extends "base.html" %}
+{% block title %}{{ deck.name }} — FlashMind{% endblock %}
+{% block extra_head %}
+<style>
+.page-header{display:flex;align-items:center;gap:1rem;margin-bottom:2rem;flex-wrap:wrap}
+.back-btn{color:var(--muted);text-decoration:none;display:flex;align-items:center;gap:.4rem;font-size:.9rem}
+.back-btn:hover{color:var(--text)}
+.page-title{font-size:1.8rem;font-weight:800;flex:1}
+.cards-table{width:100%;border-collapse:collapse}
+.cards-table th{text-align:left;padding:.75rem 1rem;background:var(--surface);color:var(--muted);font-size:.8rem;text-transform:uppercase;letter-spacing:.05em}
+.cards-table td{padding:.9rem 1rem;border-bottom:1px solid var(--border);font-size:.9rem;vertical-align:top}
+.cards-table tr:hover td{background:rgba(255,255,255,.02)}
+.accuracy-badge{display:inline-block;padding:.2rem .6rem;border-radius:50px;font-size:.75rem;font-weight:600}
+.empty-state{text-align:center;padding:4rem;color:var(--muted)}
+.empty-state .icon{font-size:3rem;margin-bottom:1rem}
+.card-wrap{background:var(--card-bg);border:1px solid var(--border);border-radius:20px;overflow:hidden}
+.card-toolbar{padding:1rem 1.5rem;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border)}
+.card-toolbar span{font-size:.9rem;color:var(--muted)}
+</style>
+{% endblock %}
+{% block content %}
+<div class="container">
+  <div class="page-header">
+    <a href="/" class="back-btn">← Back</a>
+    <h1 class="page-title" style="color:{{ deck.color }}">{{ deck.name }}</h1>
+    <a href="/quiz/{{ deck.id }}" class="btn btn-primary">Quiz ▶</a>
+    <button class="btn btn-ghost" onclick="openAddCard()">＋ Add Card</button>
+  </div>
+
+  <div class="card-wrap">
+    <div class="card-toolbar">
+      <span>{{ cards|length }} cards</span>
+    </div>
+    {% if cards %}
+    <table class="cards-table">
+      <thead><tr><th>#</th><th>Question</th><th>Answer</th><th>Accuracy</th><th>Actions</th></tr></thead>
+      <tbody>
+      {% for c in cards %}
+      {% set pct = (c.times_correct / c.times_seen * 100)|int if c.times_seen > 0 else 0 %}
+      <tr>
+        <td style="color:var(--muted)">{{ loop.index }}</td>
+        <td><strong>{{ c.question }}</strong></td>
+        <td style="color:var(--muted)">{{ c.answer }}</td>
+        <td>
+          <span class="accuracy-badge" style="background:{{'rgba(67,217,173,.15)' if pct>=70 else 'rgba(239,68,68,.15)'}};color:{{'#43D9AD' if pct>=70 else '#ef4444'}}">
+            {{ pct }}%
+          </span>
+        </td>
+        <td>
+          <button class="btn btn-ghost" style="padding:.3rem .7rem;font-size:.8rem" onclick="editCard({{ c.id }},'{{ c.question|replace("'","\\'") }}','{{ c.answer|replace("'","\\'") }}')">Edit</button>
+          <button class="btn btn-danger" style="padding:.3rem .7rem;font-size:.8rem;margin-left:.3rem" onclick="deleteCard({{ c.id }})">Del</button>
+        </td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="empty-state">
+      <div class="icon">📭</div>
+      <p>No cards yet. Add your first card!</p>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- Add/Edit Card Modal -->
+<div class="modal-overlay" id="cardModal">
+  <div class="modal">
+    <h3 id="cardModalTitle">Add Card</h3>
+    <input type="hidden" id="cardId">
+    <div class="form-group">
+      <label>Question (Front)</label>
+      <textarea id="cardQ" placeholder="Enter your question..."></textarea>
+    </div>
+    <div class="form-group">
+      <label>Answer (Back)</label>
+      <textarea id="cardA" placeholder="Enter the answer..."></textarea>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeCardModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="saveCard()">Save Card</button>
+    </div>
+  </div>
+</div>
+
+{% block extra_js %}
+<script>
+const DECK_ID = {{ deck.id }};
+function openAddCard(){
+  document.getElementById('cardModalTitle').textContent='Add Card';
+  document.getElementById('cardId').value='';
+  document.getElementById('cardQ').value='';
+  document.getElementById('cardA').value='';
+  document.getElementById('cardModal').classList.add('active');
+}
+function editCard(id,q,a){
+  document.getElementById('cardModalTitle').textContent='Edit Card';
+  document.getElementById('cardId').value=id;
+  document.getElementById('cardQ').value=q;
+  document.getElementById('cardA').value=a;
+  document.getElementById('cardModal').classList.add('active');
+}
+function closeCardModal(){document.getElementById('cardModal').classList.remove('active')}
+async function saveCard(){
+  const id=document.getElementById('cardId').value;
+  const q=document.getElementById('cardQ').value.trim();
+  const a=document.getElementById('cardA').value.trim();
+  if(!q||!a)return;
+  if(id){
+    await fetch(`/api/cards/${id}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({question:q,answer:a})});
+  } else {
+    await fetch('/api/cards',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({deck_id:DECK_ID,question:q,answer:a})});
+  }
+  closeCardModal();location.reload();
+}
+async function deleteCard(id){
+  if(!confirm('Delete this card?'))return;
+  await fetch(`/api/cards/${id}`,{method:'DELETE'});
+  location.reload();
+}
+</script>
+{% endblock %}
+{% endblock %}
